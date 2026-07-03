@@ -73,6 +73,16 @@ public static class StudyCatalog
             "Transactions/contracts per second; quantifies HFT/algo aggression."),
         new StudyDefinition("Stop Run / Liquidity Hunt", "SR", StudyCategory.OrderFlowAndTape, StudyStatus.Active,
             "Sweeps through swing levels with volume bursts that run stops.", DetectorKey: "Stop-Run", DefaultOn: true),
+        new StudyDefinition("Delta Divergence Pro", "DDIV", StudyCategory.OrderFlowAndTape, StudyStatus.Active,
+            "Pivot-to-pivot delta divergence (regular + hidden) with confirmed/developing states drawn on the chart. No lookahead."),
+        new StudyDefinition("Delta Blocks", "DBLK", StudyCategory.OrderFlowAndTape, StudyStatus.Active,
+            "Trade-derived delta blocks: contiguous flow sealed at a delta threshold, shaded green/purple by net aggression."),
+        new StudyDefinition("Anchored VWAP (Session)", "AVWAP", StudyCategory.OrderFlowAndTape, StudyStatus.Active,
+            "Session-anchored VWAP with volume-weighted ±1σ/±2σ bands (documented weighted-variance formula)."),
+        new StudyDefinition("Exhaustion Candidates", "EXH", StudyCategory.OrderFlowAndTape, StudyStatus.Active,
+            "Local extreme reached on declining aggressive participation. Candidate only.", DetectorKey: "Exhaustion", DefaultOn: true),
+        new StudyDefinition("Trapped-Trader Candidates", "TRAP", StudyCategory.OrderFlowAndTape, StudyStatus.Active,
+            "Strong one-sided aggression near an extreme that price rejects. Candidate positioning pressure only.", DetectorKey: "Trapped Traders", DefaultOn: true),
 
         // ── Technical Analysis & Price Action ────────────────────────────
         new StudyDefinition("Fair Value Gap (FVG)", "FVG", StudyCategory.TechnicalAndPriceAction, StudyStatus.EngineReady,

@@ -1,7 +1,9 @@
 using FlowTerminal.Analytics.BigTrades;
 using FlowTerminal.Analytics.Footprints;
+using FlowTerminal.Analytics.OrderFlow;
 using FlowTerminal.Analytics.PriceAction;
 using FlowTerminal.Analytics.Profiles;
+using FlowTerminal.Analytics.Vwap;
 
 namespace FlowTerminal.Charting.Overlays;
 
@@ -23,6 +25,18 @@ public sealed record ChartOverlays(
     IReadOnlyList<TpoRow> Tpo,
     IReadOnlyList<BigTradeGroup> BigTrades)
 {
+    /// <summary>Confirmed delta-divergence signals (pivot-to-pivot; no lookahead).</summary>
+    public IReadOnlyList<DivergenceSignal> Divergences { get; init; } = Array.Empty<DivergenceSignal>();
+
+    /// <summary>The currently-developing divergence, if any (drawn dashed; may vanish).</summary>
+    public DivergenceSignal? DevelopingDivergence { get; init; }
+
+    /// <summary>Recent completed delta blocks (canonical trade-derived).</summary>
+    public IReadOnlyList<DeltaBlock> DeltaBlocks { get; init; } = Array.Empty<DeltaBlock>();
+
+    /// <summary>Anchored VWAP per-bar samples (ticks; NaN before the anchor has volume).</summary>
+    public IReadOnlyList<AnchoredVwapPoint> AnchoredVwap { get; init; } = Array.Empty<AnchoredVwapPoint>();
+
     public static ChartOverlays Empty { get; } = new(
         Array.Empty<ProfileLevel>(), long.MinValue, long.MinValue, long.MinValue,
         Array.Empty<double>(), Array.Empty<FvgBox>(), null, null,

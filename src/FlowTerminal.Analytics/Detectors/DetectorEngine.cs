@@ -30,12 +30,15 @@ public sealed class DetectorEngine
     public StopRunDetector StopRun { get; } = new();
     public MarketRegimeDetector Regime { get; } = new();
     public DeltaDivergenceDetector Divergence { get; } = new();
+    public ExhaustionDetector Exhaustion { get; } = new();
+    public TrappedTraderDetector Trapped { get; } = new();
 
     public long TotalDetections => _total;
 
     public IEnumerable<IDetector> Detectors => new IDetector[]
     {
         Large, Sweep, Absorption, Replenishment, Iceberg, StopRun, Regime, Divergence,
+        Exhaustion, Trapped,
     };
 
     /// <summary>Processes one canonical event, recording any resulting detections.</summary>
@@ -58,7 +61,12 @@ public sealed class DetectorEngine
     }
 
     /// <summary>Feeds a completed bar to the bar-based detectors.</summary>
-    public void OnBar(in Bar bar) => Record(Divergence.OnBar(bar));
+    public void OnBar(in Bar bar)
+    {
+        Record(Divergence.OnBar(bar));
+        Record(Exhaustion.OnBar(bar));
+        Record(Trapped.OnBar(bar));
+    }
 
     public IReadOnlyList<Detection> Recent(int max)
     {

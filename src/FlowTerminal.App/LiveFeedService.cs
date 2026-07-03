@@ -3,6 +3,7 @@ using FlowTerminal.Analytics.BigTrades;
 using FlowTerminal.Analytics.Delta;
 using FlowTerminal.Analytics.Detectors;
 using FlowTerminal.Analytics.Footprints;
+using FlowTerminal.Analytics.OrderFlow;
 using FlowTerminal.Analytics.PriceAction;
 using FlowTerminal.Analytics.Profiles;
 using FlowTerminal.Analytics.Vwap;
@@ -88,6 +89,12 @@ public sealed class LiveFeedService : IAsyncDisposable
 
     private LiquidityHeatmap _heatmap = new(TimeSpan.FromMilliseconds(250));
     private PullStackTracker _pullStack = new();
+
+    // ── Order-flow suite engines (shared canonical stream; deterministic) ────
+    private DeltaDivergenceEngine _divergence = new();
+    private DeltaBlockEngine _deltaBlocks = new();
+    private AnchoredVwapInstance? _avwapSession;               // session-open anchored VWAP
+    private readonly List<AnchoredVwapPoint> _avwapByBar = new(); // 1:1 with _completed
     private readonly HeatmapRenderer _heatmapRenderer = new();
     private readonly BookmapRenderer _bookmapRenderer = new();
     private readonly List<TradeDot> _tradeDots = new(); // recent executions for heatmap bubbles
@@ -345,6 +352,10 @@ public sealed class LiveFeedService : IAsyncDisposable
         _heatmap = new LiquidityHeatmap(TimeSpan.FromMilliseconds(250));
         _pullStack = new PullStackTracker();
         _bigTrades = BigTradeDetector.For(_contract?.Root ?? RootSymbol.NQ);
+        _divergence = new DeltaDivergenceEngine();
+        _deltaBlocks = new DeltaBlockEngine();
+        _avwapSession = null;
+        _avwapByBar.Clear();
         _tradeDots.Clear();
         _lastTradeTicks = 0;
         _lastEventUtc = default;
@@ -468,6 +479,13 @@ public sealed class LiveFeedService : IAsyncDisposable
                     if (_tradeDots.Count > 8000) _tradeDots.RemoveRange(0, _tradeDots.Count - 8000);
                 }
                 _multiVwap.AddTrade(e.PriceTicks, e.Quantity, _calendar.TradingDate(e.ExchangeTimestampUtc));
+
+                // Order-flow suite: warm history is included so the chart's back-history
+                // carries signals/blocks too. The session AVWAP anchors at the first trade.
+                _avwapSession ??= new AnchoredVwapInstance(1, "Session", VwapAnchorType.SessionOpen, e.ExchangeTimestampUtc);
+                _avwapSession.OnTrade(e);
+                _deltaBlocks.OnTrade(e);
+
                 _currentFootprint.AddTrade(e);
                 _tpo ??= new TpoProfile(e.ExchangeTimestampUtc);
                 _tpo.AddTrade(e.PriceTicks, e.ExchangeTimestampUtc);
@@ -479,8 +497,11 @@ public sealed class LiveFeedService : IAsyncDisposable
                 if (_bars.AddTrade(e) is { } completed)
                 {
                     if (!warmUp) _detectors.OnBar(completed);
+                    _divergence.OnBar(completed);
                     _completed.Add(completed);
                     _vwapByBar.Add(_multiVwap.Daily.VwapTicks);
+                    var av = _avwapSession is { HasData: true } a ? a.Value : new VwapValue(double.NaN, 0);
+                    _avwapByBar.Add(new AnchoredVwapPoint(av.VwapTicks, av.StdDevTicks));
                     var doneFootprint = _currentFootprint;
                     _barFootprints.Add(doneFootprint);
                     _footprintColumns.Add(BuildFootprintBar(completed, doneFootprint, isClosed: true));
@@ -502,6 +523,7 @@ public sealed class LiveFeedService : IAsyncDisposable
                         int remove = _completed.Count - MaxChartBars;
                         _completed.RemoveRange(0, remove);
                         _vwapByBar.RemoveRange(0, remove);
+                        _avwapByBar.RemoveRange(0, remove);
                         _barFootprints.RemoveRange(0, remove);
                         _footprintColumns.RemoveRange(0, remove);
                         if (_cvdBars.Count >= remove) _cvdBars.RemoveRange(0, remove);
@@ -568,7 +590,14 @@ public sealed class LiveFeedService : IAsyncDisposable
                 vwap, fvgs,
                 _orb is { IsEstablished: true } orb ? orb.HighTicks : null,
                 _orb is { IsEstablished: true } orb2 ? orb2.LowTicks : null,
-                footprint, tpoRows, bigTrades);
+                footprint, tpoRows, bigTrades)
+            {
+                // Copies: the engines mutate on the pipeline thread while the UI samples.
+                Divergences = new List<DivergenceSignal>(_divergence.Signals),
+                DevelopingDivergence = _divergence.Developing(),
+                DeltaBlocks = new List<DeltaBlock>(_deltaBlocks.Blocks),
+                AnchoredVwap = new List<AnchoredVwapPoint>(_avwapByBar),
+            };
 
             // CVD history (completed bars + the developing bar so the line is live).
             var cvdSeries = new List<CvdBar>(_cvdBars.Count + 1);

@@ -43,6 +43,7 @@ public sealed class SkiaChartHost : SKElement
     private readonly IndicatorSeriesEngine _indicatorEngine = new();
     private readonly IndicatorRenderer _indicatorRenderer = new();
     private readonly BigTradeRenderer _bigTradeRenderer = new();
+    private readonly OrderFlowOverlayRenderer _orderFlow = new();
     private IndicatorRenderData _indicatorData = IndicatorRenderData.Empty;
     private List<ChartDrawing> _drawings = new();
     private readonly Stack<List<ChartDrawing>> _undo = new();
@@ -486,6 +487,12 @@ public sealed class SkiaChartHost : SKElement
         }
         else
         {
+            // Delta blocks sit behind the candles so price stays readable.
+            if (_studies?.IsEnabled("DBLK") == true && _overlayData.DeltaBlocks.Count > 0)
+            {
+                _orderFlow.RenderDeltaBlocks(canvas, viewport, _overlayData.DeltaBlocks, t => BigTradeX(viewport, t));
+            }
+
             switch (_chartType)
             {
                 case ChartType.Bars: _barSeries.RenderBars(canvas, viewport, _bars); break;
@@ -512,6 +519,18 @@ public sealed class SkiaChartHost : SKElement
             if (_studies?.IsEnabled("LT") == true && _overlayData.BigTrades.Count > 0)
             {
                 RenderBigTrades(canvas, viewport);
+            }
+
+            // Order-flow suite overlays (time-mapped; rendering detail only).
+            if (_studies?.IsEnabled("AVWAP") == true && _overlayData.AnchoredVwap.Count > 0)
+            {
+                _orderFlow.RenderAnchoredVwap(canvas, viewport, _overlayData.AnchoredVwap, new[] { 1.0, 2.0 });
+            }
+
+            if (_studies?.IsEnabled("DDIV") == true)
+            {
+                _orderFlow.RenderDivergences(canvas, viewport, _overlayData.Divergences,
+                    _overlayData.DevelopingDivergence, t => TimeToX(viewport, t));
             }
         }
 
