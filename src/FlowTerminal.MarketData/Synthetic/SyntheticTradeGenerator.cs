@@ -30,22 +30,29 @@ public sealed class SyntheticTradeGenerator
     /// <summary>Net executed quantity (buy positive) produced on the most recent step.</summary>
     public long LastNetFlow { get; private set; }
 
+    // Short-lived aggressor momentum (EMA of recent clip directions). It makes flow
+    // cluster — a few buys beget more buys — without ever locking one-sided.
+    private double _momentum;
+
     internal void Generate(SyntheticOrderBook book, in RegimeProfile p, double buyBias,
-        ref DeterministicRng rng, IBookEventSink sink)
+        ref DeterministicRng rng, IBookEventSink sink, double phaseRate = 1.0)
     {
         LastNetFlow = 0;
-        double lambda = _cfg.TradeRate * p.TradeMult;
-        int clips = SampleClipCount(lambda, ref rng);
+        double lambda = _cfg.TradeRate * p.TradeMult * phaseRate;
+        int clips = SampleClipCount(lambda, p.TradeMult, ref rng);
         if (clips == 0)
         {
             return;
         }
 
-        double pBuy = Math.Clamp(0.5 + 0.42 * buyBias + 0.06 * SynthDistributions.NextGaussian(ref rng), 0.04, 0.96);
+        double pBuy = Math.Clamp(
+            0.5 + 0.40 * buyBias + 0.09 * _momentum + 0.06 * SynthDistributions.NextGaussian(ref rng),
+            0.04, 0.96);
 
         for (int c = 0; c < clips; c++)
         {
             bool buy = rng.NextDouble() < pBuy;
+            _momentum = Math.Clamp(0.90 * _momentum + 0.10 * (buy ? 1 : -1), -1, 1);
             long size = ClipSize(in p, ref rng);
             if (size <= 0)
             {
@@ -138,24 +145,43 @@ public sealed class SyntheticTradeGenerator
         }
     }
 
-    private int SampleClipCount(double lambda, ref DeterministicRng rng)
+    private int SampleClipCount(double lambda, double regimeTradeMult, ref DeterministicRng rng)
     {
-        // Cheap, bounded approximation: integer part fires for sure, fractional part
-        // is a coin flip, with a small chance of a burst in busy regimes.
+        // Cheap, bounded approximation of a clustered arrival process: integer part
+        // fires for sure, fractional part is a coin flip, and an occasional burst of
+        // several clips lands in one step (more often in busy regimes). Bursts change
+        // *when* trades arrive, never how big they are.
         int n = (int)lambda;
         if (rng.NextDouble() < lambda - n) n++;
-        if (lambda > 1.2 && rng.NextDouble() < 0.15) n++;
-        return Math.Min(n, 5);
+        if (rng.NextDouble() < 0.02 * regimeTradeMult) n += rng.NextInt(2, 5);
+        return Math.Min(n, 8);
     }
 
+    /// <summary>
+    /// Three-tier mixture clip size: heavy-tailed small body, uncommon large tier, and an
+    /// exceptional extreme tail. Regime SweepMult scales only the tail-tier probabilities
+    /// (never every clip's size), and a hard cap keeps the tail finite.
+    /// </summary>
     private long ClipSize(in RegimeProfile p, ref DeterministicRng rng)
     {
-        if (SynthDistributions.Chance(ref rng, _cfg.LargeTradeProbability * p.SweepMult))
+        long size;
+        if (_cfg.ExtremeTradeProbability > 0 &&
+            SynthDistributions.Chance(ref rng, _cfg.ExtremeTradeProbability * p.SweepMult))
         {
-            double mult = SynthDistributions.Lerp(ref rng, _cfg.LargeTradeMultMin, _cfg.LargeTradeMultMax);
-            return Math.Max(1, (long)Math.Round(_cfg.TradeSizeMedian * mult));
+            size = (long)Math.Round(SynthDistributions.NextLogNormal(ref rng, _cfg.ExtremeSizeMedian, _cfg.ExtremeSizeSigma));
+        }
+        else if (SynthDistributions.Chance(ref rng, _cfg.LargeTradeProbability * p.SweepMult))
+        {
+            size = _cfg.LargeSizeMedian > 0
+                ? (long)Math.Round(SynthDistributions.NextLogNormal(ref rng, _cfg.LargeSizeMedian, _cfg.LargeSizeSigma))
+                : (long)Math.Round(_cfg.TradeSizeMedian *
+                    SynthDistributions.Lerp(ref rng, _cfg.LargeTradeMultMin, _cfg.LargeTradeMultMax));
+        }
+        else
+        {
+            size = SynthDistributions.Size(ref rng, _cfg.TradeSizeMedian, _cfg.TradeSizeSigma, 1.0, 1);
         }
 
-        return SynthDistributions.Size(ref rng, _cfg.TradeSizeMedian, _cfg.TradeSizeSigma, 1.0, 1);
+        return Math.Clamp(size, 1, _cfg.MaxClipSize);
     }
 }

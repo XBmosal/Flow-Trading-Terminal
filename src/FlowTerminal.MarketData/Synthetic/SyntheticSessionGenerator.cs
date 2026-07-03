@@ -3,6 +3,29 @@ using FlowTerminal.Domain.Instruments;
 
 namespace FlowTerminal.MarketData.Synthetic;
 
+/// <summary>
+/// Independent stress dimensions for the synthetic engine. Each mode exaggerates ONE
+/// aspect on purpose; they never combine silently and none is the default — normal mock
+/// realism is <see cref="None"/>.
+/// </summary>
+public enum SyntheticStressMode
+{
+    /// <summary>Calibrated realism (the default; the only mode used for demos/screenshots).</summary>
+    None,
+
+    /// <summary>Higher event/trade throughput. The trade-size distribution is unchanged.</summary>
+    EventRate,
+
+    /// <summary>Much heavier add/cancel/replenish churn. Book stays valid; sizes unchanged.</summary>
+    Depth,
+
+    /// <summary>Explicit tail-inflation mode for Big Trade testing only — never normal output.</summary>
+    LargeTrade,
+
+    /// <summary>Injects a deliberate sequence gap to exercise recovery paths (tests only).</summary>
+    Corruption,
+}
+
 public sealed record SyntheticOptions
 {
     /// <summary>Seed driving the deterministic stream. Same seed → identical events.</summary>
@@ -14,8 +37,14 @@ public sealed record SyntheticOptions
     /// <summary>Average milliseconds between simulation steps (drives event pacing).</summary>
     public int MeanInterEventMs { get; init; } = 5;
 
-    /// <summary>Probability (0..1) that a given aggressive clip is an outsized sweep order.</summary>
-    public double LargeTradeProbability { get; init; } = 0.01;
+    /// <summary>
+    /// Optional override of the large-clip (sweep-candidate) probability. Null (default)
+    /// uses the instrument profile's calibrated value; setting it is a test/tuning knob.
+    /// </summary>
+    public double? LargeTradeProbability { get; init; }
+
+    /// <summary>Which single aspect (if any) to stress. Default = calibrated realism.</summary>
+    public SyntheticStressMode Stress { get; init; } = SyntheticStressMode.None;
 
     /// <summary>Inject a deliberate sequence gap after this many events (0 = never). For tests.</summary>
     public int InjectGapAfter { get; init; }

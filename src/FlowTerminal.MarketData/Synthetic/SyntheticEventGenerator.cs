@@ -61,12 +61,17 @@ public sealed class SyntheticEventGenerator : IBookEventSink
         _symbol = contract.Symbol;
         _exchange = contract.Spec.Exchange;
         _options = options;
-        _cfg = SyntheticMarketConfiguration.ForRoot(contract.Root) with
+        var cfg = SyntheticMarketConfiguration.ForRoot(contract.Root) with
         {
-            // Honour the legacy option knobs so existing callers keep their semantics.
-            LargeTradeProbability = options.LargeTradeProbability,
             BaseStepMs = Math.Max(2, options.MeanInterEventMs * 2),
         };
+        // Explicit tuning override; null keeps the instrument profile's calibrated tail.
+        if (options.LargeTradeProbability is { } largeP)
+        {
+            cfg = cfg with { LargeTradeProbability = largeP };
+        }
+
+        _cfg = ApplyStress(cfg, options.Stress);
         _rng = new DeterministicRng(options.Seed);
         _clock = DateTime.SpecifyKind(startUtc, DateTimeKind.Utc);
         _regime = new SyntheticRegimeEngine(ref _rng);
@@ -77,6 +82,32 @@ public sealed class SyntheticEventGenerator : IBookEventSink
         _initAsk = mid + 1;
         _anchor = mid + 0.5;
     }
+
+    /// <summary>
+    /// Maps a stress mode onto the configuration. Each mode changes exactly one aspect:
+    /// EventRate = more steps per second (size distribution untouched); Depth = heavier
+    /// add/cancel/replenish churn; LargeTrade = explicit tail inflation (Big Trade testing
+    /// only); Corruption = a deliberate sequence gap. Normal mode returns the profile as-is.
+    /// </summary>
+    private static SyntheticMarketConfiguration ApplyStress(SyntheticMarketConfiguration cfg, SyntheticStressMode stress) => stress switch
+    {
+        SyntheticStressMode.EventRate => cfg with
+        {
+            BaseStepMs = Math.Max(1, cfg.BaseStepMs / 3),   // ~3× steps/sec → ~3× events
+        },
+        SyntheticStressMode.Depth => cfg with
+        {
+            LevelChurnRate = Math.Min(0.9, cfg.LevelChurnRate * 3),
+            RefillRate = Math.Min(0.95, cfg.RefillRate * 2),
+            ReplenishRate = Math.Min(0.95, cfg.ReplenishRate * 2),
+        },
+        SyntheticStressMode.LargeTrade => cfg with
+        {
+            LargeTradeProbability = Math.Min(0.25, cfg.LargeTradeProbability * 12),
+            ExtremeTradeProbability = Math.Min(0.05, cfg.ExtremeTradeProbability * 12),
+        },
+        _ => cfg,
+    };
 
     /// <summary>The live synthetic book (observational; used by tests and diagnostics).</summary>
     public SyntheticOrderBook Book => _book;
@@ -136,7 +167,10 @@ public sealed class SyntheticEventGenerator : IBookEventSink
         Churn(p);
         Replenish(p);
         EnsureDepth(p);
-        _trades.Generate(_book, in p, bias, ref _rng, this);
+        // Session phase: time-of-day activity multiplier (overnight quiet → opening burst
+        // → midday lull → close). Deterministic — it reads only the simulated clock.
+        double phaseRate = _cfg.SessionPhaseRate is { Length: 24 } phases ? phases[_clock.Hour] : 1.0;
+        _trades.Generate(_book, in p, bias, ref _rng, this, phaseRate);
         Recenter(p, bias);
         EnsureValid(p);
 
@@ -431,7 +465,10 @@ public sealed class SyntheticEventGenerator : IBookEventSink
     private long NextSeq()
     {
         _sequence++;
-        if (_options.InjectGapAfter > 0 && !_gapInjected && _emitted == _options.InjectGapAfter)
+        // Corruption stress implies a gap even when the caller didn't set one explicitly.
+        int gapAfter = _options.InjectGapAfter > 0 ? _options.InjectGapAfter
+            : _options.Stress == SyntheticStressMode.Corruption ? 5_000 : 0;
+        if (gapAfter > 0 && !_gapInjected && _emitted == gapAfter)
         {
             _sequence += 5; // deliberate sequence gap (test scenarios only)
             _gapInjected = true;

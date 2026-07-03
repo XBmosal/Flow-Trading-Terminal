@@ -143,11 +143,13 @@ public static class BigTradePresetRegistry
         P("Adaptive Session", "Session-percentile threshold; adapts as the session develops.",
             new BigTradeSettings { Mode = ThresholdMode.SessionPercentile, Percentile = 0.985, MinSamples = 50 }),
 
-        P("NQ Balanced", "NQ-tuned fixed+percentile defaults.",
-            new BigTradeSettings { Mode = ThresholdMode.RollingPercentile, Percentile = 0.98, FixedBuyThreshold = 50, FixedSellThreshold = 50, AbsoluteFloor = 15 }),
+        // The instrument presets qualify *group totals*, which sum several prints — so the
+        // floor is set at "meaningful aggressive action" size, not at single-print size.
+        P("NQ Balanced", "NQ-tuned percentile defaults: occasional, meaningful bubbles.",
+            new BigTradeSettings { Mode = ThresholdMode.RollingPercentile, Percentile = 0.999, FixedBuyThreshold = 50, FixedSellThreshold = 50, AbsoluteFloor = 40, TimeWindowMs = 150, MaxTickDistance = 2 }),
 
-        P("ES Balanced", "ES-tuned fixed+percentile defaults.",
-            new BigTradeSettings { Mode = ThresholdMode.RollingPercentile, Percentile = 0.98, FixedBuyThreshold = 75, FixedSellThreshold = 75, AbsoluteFloor = 25 }),
+        P("ES Balanced", "ES-tuned percentile defaults: occasional, meaningful bubbles.",
+            new BigTradeSettings { Mode = ThresholdMode.RollingPercentile, Percentile = 0.999, FixedBuyThreshold = 75, FixedSellThreshold = 75, AbsoluteFloor = 60, TimeWindowMs = 150, MaxTickDistance = 2 }),
 
         P("Replay Study", "Detailed grouping, more retained children for inspection.",
             new BigTradeSettings { Mode = ThresholdMode.RollingPercentile, Percentile = 0.95, Aggregation = AggregationMode.AdjacentPrice, MaxRetainedChildren = 256 }),
