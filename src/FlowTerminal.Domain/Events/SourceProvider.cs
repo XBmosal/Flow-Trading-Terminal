@@ -8,4 +8,5 @@ public enum SourceProvider : byte
     SyntheticHistorical = 2,
     RecordedReplay = 3,
     Rithmic = 4,
+    Databento = 5,
 }
