@@ -148,6 +148,38 @@ public class OrderFlowSuiteTests
         Assert.True(Enum.IsDefined(a[0].Strength));
     }
 
+    [Fact]
+    public void Pivot_Times_Are_Bar_Start_Times_For_Chart_Alignment()
+    {
+        // The chart maps a time to a bar by StartUtc; a pivot carrying EndUtc would draw
+        // one bar to the right of the true swing. Regression for that off-by-one.
+        var signals = RunLows(low1: 90, d1: -80, low2: 85, d2: -20);
+        var s = Assert.Single(signals);
+        Assert.Equal(T.AddMinutes(5), s.FirstPivotTimeUtc);   // bar 5's START
+        Assert.Equal(T.AddMinutes(13), s.SecondPivotTimeUtc); // bar 13's START
+    }
+
+    [Fact]
+    public void Outside_Bar_Confirming_Both_Pivots_Records_Both_Signals()
+    {
+        // Bars 5 and 13 are outside bars — each is both the swing high AND the swing low
+        // of its window. The highs form a regular bearish divergence (HH, weaker delta)
+        // and the lows a hidden bullish one (HL, lower delta), confirming at the same
+        // bar. Both must be recorded — regression for one overwriting the other.
+        var e = Engine();
+        for (int i = 0; i < 20; i++)
+        {
+            long hi = 100, lo = 90, delta = 0;
+            if (i == 5) { hi = 110; lo = 80; delta = 50; }
+            if (i == 13) { hi = 115; lo = 84; delta = 10; }
+            e.OnBar(MkBar(i, hi, lo, delta));
+        }
+
+        Assert.Equal(2, e.Signals.Count);
+        Assert.Contains(e.Signals, s => s.Type == DivergenceType.RegularBearish);
+        Assert.Contains(e.Signals, s => s.Type == DivergenceType.HiddenBullish);
+    }
+
     // ── Delta blocks ─────────────────────────────────────────────────────────
 
     [Fact]

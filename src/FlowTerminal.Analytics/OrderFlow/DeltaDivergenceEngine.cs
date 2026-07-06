@@ -127,11 +127,14 @@ public sealed class DeltaDivergenceEngine
         int rel = _bars.Count - 1 - _s.PivotRight;
         if (rel < _s.PivotLeft) return null;
 
+        // A bar can (rarely) confirm as BOTH a swing high and a swing low — an outside
+        // bar dominating its neighbours in both directions. Each side is evaluated and
+        // recorded independently so neither signal is lost; the last one is returned.
         DivergenceSignal? emitted = null;
         if (IsPivot(rel, high: true))
         {
             var p = MakePivot(rel, high: true);
-            emitted = Compare(_highs, p, high: true) ?? emitted;
+            emitted = Record(Compare(_highs, p, high: true)) ?? emitted;
             _highs.Add(p);
             if (_highs.Count > 64) _highs.RemoveAt(0);
         }
@@ -139,15 +142,9 @@ public sealed class DeltaDivergenceEngine
         if (IsPivot(rel, high: false))
         {
             var p = MakePivot(rel, high: false);
-            emitted = Compare(_lows, p, high: false) ?? emitted;
+            emitted = Record(Compare(_lows, p, high: false)) ?? emitted;
             _lows.Add(p);
             if (_lows.Count > 64) _lows.RemoveAt(0);
-        }
-
-        if (emitted is not null)
-        {
-            _signals.Add(emitted);
-            if (_signals.Count > 256) _signals.RemoveAt(0); // bounded for long sessions
         }
 
         return emitted;
@@ -163,10 +160,18 @@ public sealed class DeltaDivergenceEngine
         if (_bars.Count == 0) return null;
         int lastRel = _bars.Count - 1;
         var bar = _bars[lastRel];
-        var asHigh = new Pivot(Abs(lastRel), bar.HighTicks, bar.Delta, bar.EndUtc, IsHigh: true);
-        var asLow = new Pivot(Abs(lastRel), bar.LowTicks, bar.Delta, bar.EndUtc, IsHigh: false);
+        var asHigh = new Pivot(Abs(lastRel), bar.HighTicks, bar.Delta, bar.StartUtc, IsHigh: true);
+        var asLow = new Pivot(Abs(lastRel), bar.LowTicks, bar.Delta, bar.StartUtc, IsHigh: false);
         return Build(_highs, asHigh, high: true, DivergenceState.Developing)
             ?? Build(_lows, asLow, high: false, DivergenceState.Developing);
+    }
+
+    private DivergenceSignal? Record(DivergenceSignal? signal)
+    {
+        if (signal is null) return null;
+        _signals.Add(signal);
+        if (_signals.Count > 256) _signals.RemoveAt(0); // bounded for long sessions
+        return signal;
     }
 
     private int Abs(int rel) => rel + _evicted;
@@ -188,8 +193,11 @@ public sealed class DeltaDivergenceEngine
 
     private Pivot MakePivot(int rel, bool high)
     {
+        // Pivot time is the bar's START time — the chart maps times to bars by StartUtc,
+        // and a bar's EndUtc equals the NEXT bar's StartUtc, which would draw every
+        // pivot one bar to the right of the true swing.
         var b = _bars[rel];
-        return new Pivot(Abs(rel), high ? b.HighTicks : b.LowTicks, b.Delta, b.EndUtc, high);
+        return new Pivot(Abs(rel), high ? b.HighTicks : b.LowTicks, b.Delta, b.StartUtc, high);
     }
 
     private DivergenceSignal? Compare(List<Pivot> prior, Pivot cur, bool high)
