@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>FlowTerminal.Benchmarks.AnalyticsBenchmark-20260707-034404</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.13.12, Ubuntu 24.04.4 LTS (Noble Numbat)
+Intel Xeon Processor 2.10GHz, 1 CPU, 4 logical and 4 physical cores
+.NET SDK 8.0.422
+  [Host] : .NET 8.0.28 (8.0.2826.26413), X64 RyuJIT AVX-512F+CD+BW+DQ+VL+VBMI
+  Dry    : .NET 8.0.28 (8.0.2826.26413), X64 RyuJIT AVX-512F+CD+BW+DQ+VL+VBMI
+</code></pre>
+<pre><code>Job=Dry  IterationCount=1  LaunchCount=1  
+RunStrategy=ColdStart  UnrollFactor=1  WarmupCount=1  
+</code></pre>
+
+<table>
+<thead><tr><th>Method                    </th><th>Mean</th><th>Error</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>BarBuilding_TimeBars</td><td>3.667 ms</td><td>NA</td><td>880 B</td>
+</tr><tr><td>Footprint_Aggregation</td><td>3.382 ms</td><td>NA</td><td>5736 B</td>
+</tr><tr><td>Cvd_Update</td><td>1.738 ms</td><td>NA</td><td>776 B</td>
+</tr><tr><td>VolumeProfile_Update</td><td>2.873 ms</td><td>NA</td><td>1816 B</td>
+</tr><tr><td>BigTrades_Classify_And_Aggregate</td><td>19.465 ms</td><td>NA</td><td>907024 B</td>
+</tr><tr><td>Dom_Ladder_Build</td><td>9.831 ms</td><td>NA</td><td>13184 B</td>
+</tr></tbody></table>
+</body>
+</html>

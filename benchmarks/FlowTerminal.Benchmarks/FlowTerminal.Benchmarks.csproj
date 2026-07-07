@@ -5,6 +5,7 @@
     <ProjectReference Include="..\..\src\FlowTerminal.MarketData\FlowTerminal.MarketData.csproj" />
     <ProjectReference Include="..\..\src\FlowTerminal.OrderBook\FlowTerminal.OrderBook.csproj" />
     <ProjectReference Include="..\..\src\FlowTerminal.Analytics\FlowTerminal.Analytics.csproj" />
+    <ProjectReference Include="..\..\src\FlowTerminal.Charting\FlowTerminal.Charting.csproj" />
     <ProjectReference Include="..\..\src\FlowTerminal.Infrastructure\FlowTerminal.Infrastructure.csproj" />
   </ItemGroup>
 

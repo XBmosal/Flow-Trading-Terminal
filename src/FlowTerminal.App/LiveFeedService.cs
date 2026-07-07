@@ -440,6 +440,20 @@ public sealed class LiveFeedService : IAsyncDisposable
         {
             _lastEventUtc = e.ExchangeTimestampUtc;
             _book.Apply(e);
+
+            // ── One classification truth ─────────────────────────────────────
+            // Every trade is classified exactly once (native side preferred; honest
+            // inference otherwise) by the shared engine inside BigTradeDetector, and the
+            // classified side is applied back onto the event. EVERY consumer below —
+            // CVD, footprint, profiles, tape, bars, detectors, heatmap dots — then reads
+            // the same aggressor, flagged AggressorInferred when it was estimated. This
+            // also warms the Big Trades size distribution on historical trades.
+            if (e.Type == MarketEventType.Trade && e.Quantity > 0)
+            {
+                var classified = _bigTrades.OnTrade(e, _book.BestBidTicks, _book.BestAskTicks, _book.IsValid);
+                e = AggressorEnrichment.Enrich(e, classified);
+            }
+
             if (!warmUp)
             {
                 _heatmap.OnClock(e.ExchangeTimestampUtc);
@@ -467,15 +481,11 @@ public sealed class LiveFeedService : IAsyncDisposable
                 _cvdClose = cvdNow;
                 _tape.Add(e);
 
-                // Live executions feed the Big Trades engine and heatmap bubbles (skip warm
-                // history). The engine classifies the aggressor side (preferring the feed's
-                // and inferring honestly otherwise); an unknown side is carried as Unknown —
-                // never silently counted as a sell.
+                // Heatmap trade bubbles are live-only (warm history has no dot trail).
                 if (!warmUp)
                 {
                     _lastTradeTicks = e.PriceTicks;
-                    var classified = _bigTrades.OnTrade(e, _book.BestBidTicks, _book.BestAskTicks, _book.IsValid);
-                    _tradeDots.Add(new TradeDot(e.ExchangeTimestampUtc, e.PriceTicks, e.Quantity, classified.Side));
+                    _tradeDots.Add(new TradeDot(e.ExchangeTimestampUtc, e.PriceTicks, e.Quantity, e.Aggressor));
                     if (_tradeDots.Count > 8000) _tradeDots.RemoveRange(0, _tradeDots.Count - 8000);
                 }
                 _multiVwap.AddTrade(e.PriceTicks, e.Quantity, _calendar.TradingDate(e.ExchangeTimestampUtc));

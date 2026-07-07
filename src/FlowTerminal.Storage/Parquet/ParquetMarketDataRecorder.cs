@@ -40,6 +40,16 @@ public sealed class ParquetMarketDataRecorder : IMarketDataRecorder
 
     public long RecordedCount { get; private set; }
 
+    // Manifest accumulators (order-sensitive hash + time range), folded per event.
+    private ulong _hash = RecordingManifest.HashSeed;
+    private DateTime _firstUtc;
+    private DateTime _lastUtc;
+    private SourceProvider _source = SourceProvider.Unknown;
+    private decimal _tickSize;
+
+    /// <summary>Tick size stamped into the manifest (so replay cannot misinterpret prices).</summary>
+    public void SetTickSize(decimal tickSize) => _tickSize = tickSize;
+
     public void Record(in MarketEvent marketEvent)
     {
         if (!_recording)
@@ -51,6 +61,10 @@ public sealed class ParquetMarketDataRecorder : IMarketDataRecorder
         lock (_buffer)
         {
             _buffer.Add(MarketEventRecord.From(marketEvent));
+            _hash = RecordingManifest.FoldEvent(_hash, marketEvent);
+            if (RecordedCount == 0) _firstUtc = marketEvent.ExchangeTimestampUtc;
+            _lastUtc = marketEvent.ExchangeTimestampUtc;
+            _source = marketEvent.Source;
             RecordedCount++;
             if (_buffer.Count >= _batchSize)
             {
@@ -111,6 +125,19 @@ public sealed class ParquetMarketDataRecorder : IMarketDataRecorder
     {
         _recording = false;
         await FlushAsync(CancellationToken.None).ConfigureAwait(false);
+        WriteManifest();
         _flushLock.Dispose();
+    }
+
+    /// <summary>Writes the session manifest so the recording is self-describing and verifiable.</summary>
+    private void WriteManifest()
+    {
+        if (RecordedCount == 0) return;
+        var manifest = new RecordingManifest(
+            RecordingManifest.CurrentSchemaVersion,
+            typeof(ParquetMarketDataRecorder).Assembly.GetName().Version?.ToString() ?? "unknown",
+            _root.ToString(), _contractSymbol, _tickSize, _tradingDate.ToString("yyyy-MM-dd"),
+            _source.ToString(), RecordedCount, _firstUtc, _lastUtc, _hash);
+        manifest.Save(_layout.SessionDirectory(_root, _contractSymbol, _tradingDate));
     }
 }
