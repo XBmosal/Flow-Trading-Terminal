@@ -38,7 +38,14 @@ public sealed record ChartSnapshot(
     long BestAskTicks,
     IReadOnlyList<CvdBar> CvdSeries,
     IReadOnlyList<BigTradeGroup> BigTrades,
-    BigTradeDiagnostics BigTradeDiagnostics);
+    BigTradeDiagnostics BigTradeDiagnostics)
+{
+    /// <summary>The CME trading date the feed is currently in (Globex 17:00 CT rollover).</summary>
+    public DateOnly TradingDate { get; init; }
+
+    /// <summary>True while the current event time is inside Regular Trading Hours (08:30–15:00 CT).</summary>
+    public bool IsRth { get; init; }
+}
 
 /// <summary>
 /// Drives a mock (or, when wired, live) feed through the canonical pipeline and the
@@ -100,6 +107,29 @@ public sealed class LiveFeedService : IAsyncDisposable
     private readonly List<TradeDot> _tradeDots = new(); // recent executions for heatmap bubbles
     private long _lastTradeTicks;
     private DateTime _lastEventUtc; // most recent processed event time (for age-based queries)
+
+    // Session awareness (Globex trading-date + RTH/ETH), advanced per event.
+    private readonly SessionTracker _session = new();
+    private SessionState _sessionState;
+
+    /// <summary>
+    /// Resets session-scoped analytics on a trading-date rollover: the session volume
+    /// profile, session CVD, TPO, opening range, Big Trades session percentile,
+    /// pull/stack accumulation, and the session-anchored VWAP (re-anchors at the next
+    /// trade). Bars, book, heatmap history, divergence signals and delta blocks persist —
+    /// they are chart history, not session state.
+    /// </summary>
+    private void OnTradingDateRollover()
+    {
+        _profile = new VolumeProfile();
+        _cvd = new CvdCalculator();
+        _cvdHasDev = false;
+        _tpo = null;
+        _orb = null;
+        _bigTrades.ResetSession();
+        _pullStack = new PullStackTracker();
+        _avwapSession = null; // re-anchors at the first trade of the new session
+    }
     private long _heatmapMinSize; // contrast filter: hide resting levels below this size
 
     /// <summary>Sets the heatmap contrast filter — resting levels smaller than this are hidden.</summary>
@@ -359,6 +389,8 @@ public sealed class LiveFeedService : IAsyncDisposable
         _tradeDots.Clear();
         _lastTradeTicks = 0;
         _lastEventUtc = default;
+        _session.Reset();
+        _sessionState = default;
     }
 
     /// <summary>
@@ -439,6 +471,16 @@ public sealed class LiveFeedService : IAsyncDisposable
         lock (_lock)
         {
             _lastEventUtc = e.ExchangeTimestampUtc;
+
+            // Session awareness: detect the Globex trading-date rollover (17:00 CT) and
+            // reset session-scoped analytics at the correct boundary. Chart history,
+            // the live book, and rolling analytics are deliberately NOT cleared.
+            _sessionState = _session.OnEvent(e.ExchangeTimestampUtc);
+            if (_sessionState.RolledOver)
+            {
+                OnTradingDateRollover();
+            }
+
             _book.Apply(e);
 
             // ── One classification truth ─────────────────────────────────────
@@ -621,7 +663,11 @@ public sealed class LiveFeedService : IAsyncDisposable
                 _book.IsValid, _book.InvalidReason, _diagnostics.Snapshot(),
                 _detectors.Recent(8), _detectors.TotalDetections, overlays,
                 _book.BestBidTicks, _book.BestAskTicks, cvdSeries,
-                bigTrades, _bigTrades.DiagnosticsSnapshot());
+                bigTrades, _bigTrades.DiagnosticsSnapshot())
+            {
+                TradingDate = _sessionState.TradingDate,
+                IsRth = _sessionState.IsRth,
+            };
         }
     }
 

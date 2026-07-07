@@ -46,4 +46,34 @@ public class ResourceKeyTests
         Assert.True(missing.Count == 0,
             "FindResource references to undefined resources: " + string.Join(", ", missing));
     }
+
+    [Fact]
+    public void Every_StaticResource_Reference_In_Xaml_Is_Defined()
+    {
+        // A typo'd {StaticResource X} in XAML throws at window load — the same crash
+        // class as the FindResource bug, but in markup. This guard parses every XAML
+        // reference with a simple named key and asserts a matching x:Key exists
+        // somewhere in the app's XAML (themes are merged app-wide).
+        var app = Path.Combine(RepoRoot(), "src", "FlowTerminal.App");
+
+        var defined = new HashSet<string>(StringComparer.Ordinal);
+        var references = new List<(string File, string Key)>();
+        foreach (var xaml in Directory.GetFiles(app, "*.xaml", SearchOption.AllDirectories))
+        {
+            if (xaml.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")) continue;
+            string text = File.ReadAllText(xaml);
+            foreach (Match m in Regex.Matches(text, @"x:Key=""(?<k>[^""]+)"""))
+                defined.Add(m.Groups["k"].Value);
+            foreach (Match m in Regex.Matches(text, @"\{(?:StaticResource|DynamicResource)\s+(?<k>\w+)\s*\}"))
+                references.Add((Path.GetFileName(xaml), m.Groups["k"].Value));
+        }
+
+        Assert.NotEmpty(defined);
+        Assert.NotEmpty(references);
+
+        var missing = references.Where(r => !defined.Contains(r.Key))
+            .Select(r => $"{r.File} → '{r.Key}'").Distinct().ToList();
+        Assert.True(missing.Count == 0,
+            "XAML StaticResource/DynamicResource references to undefined keys: " + string.Join(", ", missing));
+    }
 }

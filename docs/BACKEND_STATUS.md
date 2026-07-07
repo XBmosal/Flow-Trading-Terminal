@@ -28,7 +28,7 @@ Legend: ✅ done · 🟡 partial · ⬜ pending. "Deterministic" = same inputs �
 | **Recording manifest (version/hash/validate)** | ✅ | ✅ | — | ✅ | ✅ | ✅ | added this pass |
 | Replay (deterministic, speed-independent) | ✅ | ✅ | — | ✅ | ✅ | ✅ | seek = restart+fast-forward |
 | Settings / templates / workspaces | ✅ | ✅ | — | — | — | 🟡 | tolerant per-file versioning |
-| Session/contract management | 🟡 | 🟡 | — | ✅ | ✅ | 🟡 | trading-date + resets; RTH/ETH templates pending |
+| Session/contract management | ✅ | ✅ | — | ✅ | ✅ | ✅ | Globex rollover resets session analytics; RTH/ETH on snapshot |
 | Diagnostics + structured logging | ✅ | ✅ | — | ✅ | — | ✅ | |
 | Threading (single-writer, snapshot copies) | ✅ | ✅ | — | ✅ | — | ✅ | |
 | Benchmarks (BenchmarkDotNet) | ✅ | — | ✅ | — | — | ✅ | order book, pipeline, analytics suite |
